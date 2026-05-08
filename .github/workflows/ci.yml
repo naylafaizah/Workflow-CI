@@ -1,0 +1,69 @@
+name: ML Training CI
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.12.7
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12.7'
+
+      - name: Check Env
+        run: python --version
+
+      - name: Install dependencies
+        run: |
+          pip install mlflow==2.19.0 scikit-learn pandas numpy matplotlib dagshub
+
+      - name: Set MLflow Tracking URI
+        run: |
+          echo "MLFLOW_TRACKING_USERNAME=${{ secrets.DAGSHUB_USERNAME }}" >> $GITHUB_ENV
+          echo "MLFLOW_TRACKING_PASSWORD=${{ secrets.DAGSHUB_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Run mlflow project
+        env:
+          DAGSHUB_USER_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          cd MLProject
+          mlflow run . --env-manager=local -P n_estimators=100 -P max_depth=10
+
+      - name: Get latest MLflow run_id
+        run: cat MLProject/latest_run_id.txt
+
+      - name: Install Python dependencies
+        run: pip install mlflow==2.19.0
+
+      - name: Upload artifact to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-artifacts
+          path: |
+            MLProject/confusion_matrix.png
+            MLProject/latest_run_id.txt
+
+      - name: Build Docker Model
+        run: |
+          cd MLProject
+          RUN_ID=$(cat latest_run_id.txt)
+          mlflow models build-docker -m "runs:/$RUN_ID/model" -n diabetes-model
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Tag Docker Image
+        run: docker tag diabetes-model ${{ secrets.DOCKER_USERNAME }}/diabetes-model:latest
+
+      - name: Push Docker Image
+        run: docker push ${{ secrets.DOCKER_USERNAME }}/diabetes-model:latest
