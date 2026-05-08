@@ -20,7 +20,10 @@ y_test  = pd.read_csv('diabetes_preprocessing/y_test.csv').squeeze()
 
 mlflow.set_experiment('Diabetes-CI')
 
-with mlflow.start_run(run_name=f'CI-RF-{n_estimators}-{max_depth}') as run:
+with mlflow.start_run(
+    run_name=f'CI-RF-{n_estimators}-{max_depth}',
+    nested=True
+) as run:
     m = RandomForestClassifier(
         n_estimators=n_estimators, max_depth=max_depth, random_state=42)
     m.fit(X_train, y_train)
