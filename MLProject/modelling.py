@@ -10,9 +10,6 @@ from sklearn.metrics import (accuracy_score, f1_score, precision_score,
                              recall_score, roc_auc_score, confusion_matrix)
 
 # Setup DagsHub
-os.environ['MLFLOW_TRACKING_USERNAME'] = os.environ.get('MLFLOW_TRACKING_USERNAME', '')
-os.environ['MLFLOW_TRACKING_PASSWORD'] = os.environ.get('MLFLOW_TRACKING_PASSWORD', '')
-
 dagshub.init(repo_owner='naylafffz',
              repo_name='mlsystem-diabetes', mlflow=True)
 
@@ -31,53 +28,46 @@ y_test  = pd.read_csv('diabetes_preprocessing/y_test.csv').squeeze()
 # Set experiment
 mlflow.set_experiment('Diabetes-CI')
 
-mlflow.end_run() 
-mlflow.start_run(run_name=f'CI-RF-{n_estimators}-{max_depth}')
+# Training
+model = RandomForestClassifier(
+    n_estimators=n_estimators,
+    max_depth=max_depth,
+    random_state=42
+)
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+y_prob = model.predict_proba(X_test)[:, 1]
 
-try:
-    # Training
-    model = RandomForestClassifier(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        random_state=42
-    )
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    y_prob = model.predict_proba(X_test)[:, 1]
+# Log params & metrics
+mlflow.log_param('n_estimators', n_estimators)
+mlflow.log_param('max_depth',    max_depth)
+mlflow.log_metric('accuracy',    accuracy_score(y_test, y_pred))
+mlflow.log_metric('f1_score',    f1_score(y_test, y_pred))
+mlflow.log_metric('precision',   precision_score(y_test, y_pred))
+mlflow.log_metric('recall',      recall_score(y_test, y_pred))
+mlflow.log_metric('roc_auc',     roc_auc_score(y_test, y_prob))
 
-    # Log params & metrics
-    mlflow.log_param('n_estimators', n_estimators)
-    mlflow.log_param('max_depth', max_depth)
-    mlflow.log_metric('accuracy',  accuracy_score(y_test, y_pred))
-    mlflow.log_metric('f1_score',  f1_score(y_test, y_pred))
-    mlflow.log_metric('precision', precision_score(y_test, y_pred))
-    mlflow.log_metric('recall',    recall_score(y_test, y_pred))
-    mlflow.log_metric('roc_auc',   roc_auc_score(y_test, y_prob))
+# Confusion matrix artifact
+cm = confusion_matrix(y_test, y_pred)
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.imshow(cm, cmap='Blues')
+for i in range(2):
+    for j in range(2):
+        ax.text(j, i, str(cm[i, j]),
+                ha='center', va='center', fontsize=12)
+plt.tight_layout()
+plt.savefig('confusion_matrix.png')
+plt.close()
+mlflow.log_artifact('confusion_matrix.png')
 
-    # Confusion matrix artifact
-    cm = confusion_matrix(y_test, y_pred)
-    fig, ax = plt.subplots(figsize=(5, 4))
-    ax.imshow(cm, cmap='Blues')
-    for i in range(2):
-        for j in range(2):
-            ax.text(j, i, str(cm[i, j]),
-                    ha='center', va='center', fontsize=12)
-    plt.tight_layout()
-    plt.savefig('confusion_matrix.png')
-    plt.close()
-    mlflow.log_artifact('confusion_matrix.png')
+# Log model
+mlflow.sklearn.log_model(model, 'model')
 
-    # Log model
-    mlflow.sklearn.log_model(model, 'model')
+# Simpan run_id dari active run yang dibuat MLflow Project
+run_id = mlflow.active_run().info.run_id
+with open('latest_run_id.txt', 'w') as f:
+    f.write(run_id)
 
-    # Simpan run_id
-    run_id = mlflow.active_run().info.run_id
-    with open('latest_run_id.txt', 'w') as f:
-        f.write(run_id)
-
-    print(f'Run ID   : {run_id}')
-    print(f'Accuracy : {accuracy_score(y_test, y_pred):.4f}')
-    print(f'F1 Score : {f1_score(y_test, y_pred):.4f}')
-
-finally:
-    mlflow.end_run()
+print(f'Run ID   : {run_id}')
+print(f'Accuracy : {accuracy_score(y_test, y_pred):.4f}')
+print(f'F1 Score : {f1_score(y_test, y_pred):.4f}')
